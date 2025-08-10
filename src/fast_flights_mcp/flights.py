@@ -1,9 +1,12 @@
+import asyncio
 import logging
 import re
+import os
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
+from concurrent.futures import ThreadPoolExecutor
 
 import moneyed
 import requests
@@ -179,7 +182,7 @@ def parse_flight_results(raw_result: RawResult, departure_date: datetime.date) -
     return FlightResults(current_price_indicator=raw_result.current_price, flights=parsed_flights)
 
 
-def find_flights(
+async def find_flights(
     from_airport: str,
     to_airport: str,
     from_date: str,
@@ -231,22 +234,28 @@ def find_flights(
             )
         )
 
+    def _get_flights_sync():
+        return get_flights(
+            flight_data=flight_data_list,
+            trip=trip,
+            seat=seat,
+            passengers=Passengers(adults=adults, children=0, infants_in_seat=0, infants_on_lap=0),
+            fetch_mode=os.environ.get("FAST_FLIGHT_MCP_MODE", "common"),
+        )
+
     raw_result = None
     for attempt in range(3):
         try:
-            raw_result: RawResult = get_flights(
-                flight_data=flight_data_list,
-                trip=trip,
-                seat=seat,
-                passengers=Passengers(adults=adults, children=0, infants_in_seat=0, infants_on_lap=0),
-                fetch_mode="common",
-            )
+            # Run the blocking get_flights call in a thread pool to avoid asyncio conflicts
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor() as executor:
+                raw_result: RawResult = await loop.run_in_executor(executor, _get_flights_sync)
             logging.info(f"Successfully fetched flights on attempt {attempt + 1}.")
             break
         except RuntimeError as e:
             logging.warning(f"Attempt {attempt + 1}/3 failed: {e}")
             if attempt < 2:
-                time.sleep(2)
+                await asyncio.sleep(2)
                 logging.info("Retrying...")
             else:
                 logging.error("All retries failed.")

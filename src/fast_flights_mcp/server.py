@@ -29,7 +29,7 @@ _bulk_tools.register_tools(mcp)
         "openWorldHint": True,
     },
 )
-def search_flights(
+async def search_flights(
     from_airport: Annotated[
         str,
         Field(
@@ -185,7 +185,7 @@ def search_flights(
         max_stops = 1
 
     try:
-        result = find_flights_impl(
+        result = await find_flights_impl(
             from_airport=from_airport,
             to_airport=to_airport,
             from_date=date,  # Map 'date' parameter to 'from_date'
